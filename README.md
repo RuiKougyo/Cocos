@@ -1,8 +1,15 @@
 # Cocos — シフト収集＆空き状況可視化システム
 
-スマートフォンだけで完結する、アルバイトのシフト希望収集と空き状況可視化のシステムです。
+スマートフォンだけで完結する、アルバイトのシフト希望の収集・可視化・代わり探しのシステムです。
 
-- 設計書: [docs/design.md](docs/design.md)（技術スタック／データモデル／セキュリティ方針／画面遷移）
-- DB スキーマ・RLS・RPC: [supabase/migrations/20261003000000_init.sql](supabase/migrations/20261003000000_init.sql)
+- 店長は **毎月1回、グループチャットにURLを1つ貼るだけ**（URLは固定）
+- スタッフはそのURLから提出。休みたい日は同じURLの「代わりを探す」で、希望を出していてシフトに入っていない人を確認できる
+- 1日は **6:00〜翌2:00**
+- 個人情報は表示名のみ。権限は DB（Supabase RLS）で強制
 
-構成: Supabase（東京リージョン、PostgreSQL RLS、Auth）＋ React/Vite PWA（Cloudflare Pages）
+| ドキュメント | 内容 |
+| --- | --- |
+| [docs/design.md](docs/design.md) | 設計書（技術スタック／データモデル／セキュリティ／画面遷移） |
+| [supabase/migrations/](supabase/migrations/) | テーブル・RLS・RPC |
+| [supabase/tests/](supabase/tests/) ・ `scripts/test-db.sh` | 権限シナリオテスト |
+| [app/](app/) | 画面（React + Vite PWA、デモモード付き） |
