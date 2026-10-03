@@ -209,6 +209,7 @@ export function createDemoAdminApi(): AdminApi {
   };
   const mutate = async (fn: (db: DB) => void) => { const db = load(); fn(db); save(db); await delay(null); };
   return {
+    loginKind: 'email',
     async session() { return state; },
     async signIn() { state = 'mfa'; return delay({ next: 'mfa' as const }); },
     async verifyMfa(code) {

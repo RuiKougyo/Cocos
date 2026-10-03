@@ -92,6 +92,7 @@ export function createSupabaseAdminApi(url: string, key: string): AdminApi {
   }
 
   const api: AdminApi = {
+    loginKind: 'email',
     async session() {
       if (!(await uid(sb))) return 'none';
       const { data } = await sb.auth.mfa.getAuthenticatorAssuranceLevel();

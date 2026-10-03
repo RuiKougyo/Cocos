@@ -91,7 +91,11 @@ export interface StaffApi {
   board(periodId: string): Promise<BoardRow[]>;
 }
 
-export type AdminSignIn = { next: 'mfa' } | { next: 'enroll'; qr: string; secret: string } | { next: 'done' };
+/** enroll: 認証アプリの登録。qr は画像（Supabase）、otpauth はアプリを直接開くリンク（無料版） */
+export type AdminSignIn =
+  | { next: 'mfa' }
+  | { next: 'enroll'; secret: string; qr?: string; otpauth?: string }
+  | { next: 'done' };
 
 export interface AdminMe {
   member_id: string;
@@ -107,6 +111,12 @@ export interface TimelineData {
 }
 
 export interface AdminApi {
+  /** ログイン画面でメールアドレスを聞くか（無料版はパスワードのみ） */
+  readonly loginKind: 'email' | 'password';
+  /** 無料版のみ: 初回設定が必要か */
+  setupState?(): Promise<'ready' | 'needs_setup' | 'not_initialized'>;
+  /** 無料版のみ: 初期設定コード・店舗名・パスワードを登録し、認証アプリの登録情報を返す */
+  setupAdmin?(setupCode: string, storeName: string, password: string): Promise<AdminSignIn>;
   /** 既存セッションの確認。MFA 未完了なら 'mfa' */
   session(): Promise<'none' | 'mfa' | 'ok'>;
   signIn(email: string, password: string): Promise<AdminSignIn>;

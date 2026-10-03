@@ -2,25 +2,78 @@ import { useCallback, useEffect, useState } from 'react';
 import { adminApi, friendlyError, isDemo } from '../lib/api';
 import { businessToday } from '../lib/time';
 import type { AdminMe, AdminSignIn, Period } from '../lib/types';
-import { ErrorBox, Loading, TabBar } from '../ui/components';
+import { copyText, ErrorBox, Loading, TabBar } from '../ui/components';
 import { FeedbackTab, MembersTab, UnsubmittedTab } from './Tabs';
 import { TimelineTab } from './Timeline';
 
 type Tab = 'timeline' | 'unsubmitted' | 'feedback' | 'members';
 
 export function AdminApp() {
-  const [auth, setAuth] = useState<'loading' | 'none' | 'mfa' | 'ok'>('loading');
+  const [auth, setAuth] = useState<'loading' | 'setup' | 'not_initialized' | 'none' | 'mfa' | 'ok'>('loading');
   const [enroll, setEnroll] = useState<Extract<AdminSignIn, { next: 'enroll' }> | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => { adminApi().session().then(setAuth).catch(() => setAuth('none')); }, []);
+  useEffect(() => {
+    (async () => {
+      const api = adminApi();
+      // 無料版: 店長がまだ登録されていなければ初期設定画面へ
+      const state = api.setupState ? await api.setupState() : 'ready';
+      if (state === 'needs_setup') return setAuth('setup');
+      if (state === 'not_initialized') return setAuth('not_initialized');
+      setAuth(await api.session());
+    })().catch((e) => { setError(friendlyError(e)); setAuth('none'); });
+  }, []);
+
+  const next = (r: AdminSignIn) => { setEnroll(r.next === 'enroll' ? r : null); setAuth(r.next === 'done' ? 'ok' : 'mfa'); };
 
   if (auth === 'loading') return <Loading />;
-  if (auth === 'none') return <LoginForm onNext={(r) => { if (r.next === 'enroll') setEnroll(r); setAuth(r.next === 'done' ? 'ok' : 'mfa'); }} />;
+  if (auth === 'not_initialized') {
+    return (
+      <div className="page narrow">
+        <h1 className="title">準備がまだです</h1>
+        <p className="muted">スプレッドシートの Apps Script で <code>initialize</code> を実行してください（手順書 docs/setup-free.md）。</p>
+      </div>
+    );
+  }
+  if (auth === 'setup') return <SetupForm onNext={next} />;
+  if (auth === 'none') return <><ErrorBox message={error} /><LoginForm onNext={next} /></>;
   if (auth === 'mfa') return <MfaForm enroll={enroll} onDone={() => setAuth('ok')} onBack={async () => { await adminApi().signOut(); setAuth('none'); }} />;
   return <AdminHome onSignOut={async () => { await adminApi().signOut(); setAuth('none'); }} />;
 }
 
+function SetupForm({ onNext }: { onNext: (r: AdminSignIn) => void }) {
+  const [code, setCode] = useState('');
+  const [store, setStore] = useState('');
+  const [pw, setPw] = useState('');
+  const [pw2, setPw2] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  return (
+    <form className="page narrow" onSubmit={async (e) => {
+      e.preventDefault();
+      setError(null);
+      if (pw.length < 10) return setError('パスワードは10文字以上にしてください。');
+      if (pw !== pw2) return setError('パスワードが一致しません。');
+      setBusy(true);
+      try { onNext(await adminApi().setupAdmin!(code.trim(), store.trim(), pw)); } catch (err) { setError(friendlyError(err)); } finally { setBusy(false); }
+    }}>
+      <p className="eyebrow">店長用</p>
+      <h1 className="title">初期設定</h1>
+      <p className="muted small">最初の1回だけです。初期設定コードは Apps Script で initialize を実行したときに表示されます。</p>
+      <div className="card">
+        <label className="field"><span>初期設定コード</span><input value={code} autoCapitalize="characters" autoComplete="off" onChange={(e) => setCode(e.target.value)} required /></label>
+        <label className="field"><span>店舗名</span><input value={store} maxLength={50} onChange={(e) => setStore(e.target.value)} required /></label>
+        <label className="field"><span>店長用パスワード（10文字以上）</span><input type="password" autoComplete="new-password" value={pw} onChange={(e) => setPw(e.target.value)} required /></label>
+        <label className="field"><span>パスワード（確認）</span><input type="password" autoComplete="new-password" value={pw2} onChange={(e) => setPw2(e.target.value)} required /></label>
+      </div>
+      <ErrorBox message={error} />
+      <button className="btn primary big" disabled={busy}>{busy ? '処理中…' : '次へ（認証アプリの登録）'}</button>
+    </form>
+  );
+}
+
 function LoginForm({ onNext }: { onNext: (r: AdminSignIn) => void }) {
+  const withEmail = adminApi().loginKind === 'email';
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -34,7 +87,7 @@ function LoginForm({ onNext }: { onNext: (r: AdminSignIn) => void }) {
       <p className="eyebrow">店長用</p>
       <h1 className="title">ログイン</h1>
       <div className="card">
-        <label className="field"><span>メールアドレス</span><input type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required /></label>
+        {withEmail && <label className="field"><span>メールアドレス</span><input type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required /></label>}
         <label className="field"><span>パスワード</span><input type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required /></label>
       </div>
       <ErrorBox message={error} />
@@ -58,9 +111,12 @@ function MfaForm(props: { enroll: Extract<AdminSignIn, { next: 'enroll' }> | nul
       <h1 className="title">{props.enroll ? '認証アプリの登録' : '認証コード'}</h1>
       {props.enroll && (
         <div className="card center">
-          <p className="muted small">Google Authenticator などの認証アプリでQRコードを読み取ってください（初回のみ）。</p>
-          <img className="qr" src={props.enroll.qr} alt="認証アプリ登録用QRコード" />
-          <p className="fine">読み取れない場合のキー: <code>{props.enroll.secret}</code></p>
+          <p className="muted small">Google Authenticator などの認証アプリ（無料）に登録します。ログインのたびに、アプリに表示される6桁のコードを入力します。</p>
+          {props.enroll.qr && <img className="qr" src={props.enroll.qr} alt="認証アプリ登録用QRコード" />}
+          {props.enroll.otpauth && <a className="btn primary" href={props.enroll.otpauth}>認証アプリに登録する</a>}
+          <p className="fine">うまく開かない場合は、認証アプリの「セットアップキーを入力」に次のキーを貼り付けてください。</p>
+          <p><code>{props.enroll.secret}</code></p>
+          <button type="button" className="btn small" onClick={() => copyText(props.enroll!.secret, 'キーをコピーしました')}>キーをコピー</button>
         </div>
       )}
       <div className="card">
